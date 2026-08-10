@@ -265,15 +265,26 @@ def handle_cook_node(params: Dict[str, Any]) -> Dict[str, Any]:
     if node is None:
         raise ValueError(f"Node not found at path '{node_path}'.")
 
-    node.cook(force=force)
+    cook_error = None
+    try:
+        node.cook(force=force)
+    except Exception as err:
+        cook_error = str(err)
+        if hasattr(node, "errors") and node.errors():
+            cook_error = " ".join(node.errors())
+
+    is_cooked = node.isCooked() if hasattr(node, "isCooked") else (cook_error is None)
 
     stats = {
         "node_path": node.path(),
         "type": node.type().name(),
-        "is_cooked": node.isCooked() if hasattr(node, "isCooked") else True,
+        "is_cooked": is_cooked,
+        "has_error": cook_error is not None,
     }
+    if cook_error:
+        stats["error_message"] = cook_error
 
-    # If node is a SOP node, attach geometry summary
+    # If node is a SOP node, attach geometry summary if available
     if hasattr(node, "geometry"):
         try:
             geo = node.geometry()
@@ -338,6 +349,22 @@ def handle_capture_viewport(params: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _make_serializable(obj: Any) -> Any:
+    if isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    if isinstance(obj, (list, tuple)):
+        return [_make_serializable(x) for x in obj]
+    if isinstance(obj, dict):
+        return {str(k): _make_serializable(v) for k, v in obj.items()}
+    if hasattr(obj, "path") and callable(obj.path):
+        return obj.path()
+    if hasattr(obj, "name") and callable(obj.name):
+        return obj.name()
+    if hasattr(obj, "toTuple") and callable(obj.toTuple):
+        return list(obj.toTuple())
+    return str(obj)
+
+
 def handle_execute_code(params: Dict[str, Any]) -> Dict[str, Any]:
     code = params.get("code")
     if not code:
@@ -349,13 +376,10 @@ def handle_execute_code(params: Dict[str, Any]) -> Dict[str, Any]:
     # Execute Python code inside Houdini
     exec(code, global_scope, local_scope)
 
-    # Filter out non-serializable return objects from local scope
+    # Filter and format return objects from local scope
     serializable_results = {}
     for k, v in local_scope.items():
-        if isinstance(v, (int, float, str, bool, list, dict, tuple, type(None))):
-            serializable_results[k] = v
-        else:
-            serializable_results[k] = str(v)
+        serializable_results[k] = _make_serializable(v)
 
     return {
         "status": "executed",

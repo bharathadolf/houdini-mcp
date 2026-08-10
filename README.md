@@ -25,18 +25,36 @@ Claude / Antigravity IDE  <--- MCP (stdio / SSE / HTTPS) --->  Houdini MCP Serve
 
 ## 🛠 Available MCP Tools
 
-| Tool | Description |
-|---|---|
-| `get_scene_info` | Returns hip file path, current frame, FPS, and root network trees (`/obj`, `/stage`, `/out`, `/mat`, `/img`). |
-| `get_node_info` | Returns node type, parameter dictionary, input/output connection paths for a specific node. |
-| `create_node` | Creates a new node under a parent network (e.g. `parent_path='/obj'`, `node_type='geo'`). |
-| `set_parm` | Sets scalar, string, menu, or vector list parameters on a node. |
-| `get_parm` | Evaluates parameter values on a node. |
-| `connect_nodes` | Connects output ports to input ports between nodes. |
-| `delete_node` | Destroys a node at path. |
-| `cook_node` | Force cooks a node and returns geometry statistics (point, primitive, vertex counts, attribute lists). |
-| `capture_viewport` | Captures a viewport screenshot from the SceneViewer tab and returns an MCP Image object (PNG) for visual AI inspection. |
-| `execute_houdini_code` | Escape hatch to execute arbitrary Python code directly inside Houdini with `hou` available. |
+| Tool | Category | Description |
+|---|---|---|
+| `get_scene_info` | Core | Returns hip file path, current frame, FPS, and root network trees (`/obj`, `/stage`, `/out`, `/mat`, `/img`). |
+| `get_node_info` | Core | Returns node type, parameter dictionary, input/output connection paths for a specific node. |
+| `create_node` | Core | Creates a new node under a parent network (e.g. `parent_path='/obj'`, `node_type='geo'`). |
+| `set_parm` | Core | Sets scalar, string, menu, or vector list parameters on a node with smart menu label matching. |
+| `get_parm` | Core | Evaluates parameter values on a node. |
+| `connect_nodes` | Core | Connects output ports to input ports between nodes. |
+| `delete_node` | Core | Destroys a node at path. |
+| `cook_node` | Core | Force cooks a node and returns geometry statistics (point, primitive, vertex counts, attribute lists). |
+| `capture_viewport` | Core | Captures a viewport screenshot from the SceneViewer tab and returns an MCP Image object (PNG) for visual AI inspection. |
+| `execute_houdini_code` | Core | Escape hatch to execute arbitrary Python code directly inside Houdini with `hou` available. |
+| `create_wrangle` | VEX & Attribs | Spawns an Attribute Wrangle SOP with VEX code snippet pre-populated. |
+| `inspect_attributes` | VEX & Attribs | Queries attribute list and domain details (points, prims, vertices, detail). |
+| `promote_attribute` | VEX & Attribs | Promotes attributes between domains (`point` $\rightarrow$ `prim` $\rightarrow$ `detail`). |
+| `layout_network` | Networks | Auto-arranges network nodes cleanly in the Network Editor. |
+| `create_node_preset_network` | Networks | Spawns procedural sub-network presets (`scatter_instance`, `rbd_destruction`, `terrain_erosion`). |
+| `create_group` | Networks | Spawns `groupcreate` SOP to group points, primitives, or edges. |
+| `create_material` | Shading & USD | Spawns Karma MaterialX or shader builder under `/mat` or `/stage/materiallibrary`. |
+| `assign_material` | Shading & USD | Binds a material path to geometry nodes or USD primitives. |
+| `get_usd_stage_info` | Shading & USD | Inspects USD prim tree and layer stack in Solaris/LOPs. |
+| `create_camera` | Cam & Lights | Spawns camera node with focal length, aperture, resolution, and transform controls. |
+| `create_light` | Cam & Lights | Spawns Dome Light, Area Light, Distant Light, or Spot Light with intensity and HDRI. |
+| `set_active_camera` | Cam & Lights | Switches the active viewport camera to a specified camera node. |
+| `render_frame` | Rendering & Cache | Triggers Karma / ROP render node to render a frame to disk. |
+| `bake_geometry_cache` | Rendering & Cache | Creates a File Cache SOP node to bake simulation/geometry caches to disk. |
+| `save_hip_file` | File & Assets | Saves current Houdini `.hip` scene file. |
+| `load_hip_file` | File & Assets | Opens an existing Houdini `.hip` scene file. |
+| `export_asset` | File & Assets | Exports geometry output to `.obj`, `.fbx`, `.abc`, or `.usd`. |
+| `instantiate_hda` | File & Assets | Instantiates a Houdini Digital Asset (`.hda` / `.otl`). |
 
 ---
 

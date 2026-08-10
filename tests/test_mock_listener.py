@@ -30,6 +30,12 @@ class MockHoudiniServer:
                         res = {"status": "success", "result": {"path": f"{params.get('parent')}/{params.get('name', 'node1')}"}}
                     elif cmd == "set_parm":
                         res = {"status": "success", "result": {"node_path": params.get("node_path"), "parm": params.get("parm_name"), "set_value": params.get("value")}}
+                    elif cmd == "create_wrangle":
+                        res = {"status": "success", "result": {"path": f"{params.get('parent_path')}/{params.get('name')}", "class": params.get("class")}}
+                    elif cmd == "create_camera":
+                        res = {"status": "success", "result": {"path": f"{params.get('parent_path')}/{params.get('name')}"}}
+                    elif cmd == "render_frame":
+                        res = {"status": "success", "result": {"rop_path": params.get("rop_path"), "rendered_frame": params.get("frame"), "status": "rendered"}}
                     else:
                         res = {"status": "success", "result": {"mock": True}}
 
@@ -55,5 +61,14 @@ def test_mock_server_flow():
 
         parm_res = client.send_command("set_parm", {"node_path": "/obj/box1", "parm_name": "tx", "value": 5.0})
         assert parm_res["set_value"] == 5.0
+
+        wrangle = client.send_command("create_wrangle", {"parent_path": "/obj/box1", "name": "vex1", "vex_code": "v@N = {0,1,0};"})
+        assert wrangle["path"] == "/obj/box1/vex1"
+
+        cam = client.send_command("create_camera", {"parent_path": "/obj", "name": "cam1", "focal": 50.0})
+        assert cam["path"] == "/obj/cam1"
+
+        render = client.send_command("render_frame", {"rop_path": "/out/karma1", "frame": 1.0})
+        assert render["status"] == "rendered"
     finally:
         server.stop()

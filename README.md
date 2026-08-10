@@ -8,6 +8,7 @@ A Model Context Protocol (MCP) server for **SideFX Houdini**, enabling AI assist
 
 Houdini MCP uses a decoupled **two-process design**:
 
+
 ```
 Claude / Antigravity IDE  <--- MCP (stdio / SSE / HTTPS) --->  Houdini MCP Server (Python Process)
                                                                        |

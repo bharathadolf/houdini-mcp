@@ -28,23 +28,10 @@ def read_exact(sock: socket.socket, num_bytes: int) -> bytes:
     return bytes(buf)
 
 
-def safe_json_default(obj: Any) -> Any:
-    """Fallback JSON serializer for non-standard Python objects (Houdini nodes, points, vectors, etc.)."""
-    if hasattr(obj, "path") and callable(obj.path):
-        return obj.path()
-    if hasattr(obj, "name") and callable(obj.name):
-        return obj.name()
-    if hasattr(obj, "toTuple") and callable(obj.toTuple):
-        return list(obj.toTuple())
-    if hasattr(obj, "number") and callable(obj.number):
-        return obj.number()
-    return str(obj)
-
-
 def send_framed_json(sock: socket.socket, payload: Dict[str, Any]) -> None:
     """Encodes a JSON payload with a 4-byte big-endian length prefix and sends it over socket."""
     try:
-        json_bytes = json.dumps(payload, default=safe_json_default, ensure_ascii=False).encode("utf-8")
+        json_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         header = struct.pack(HEADER_FORMAT, len(json_bytes))
         sock.sendall(header + json_bytes)
     except Exception as e:

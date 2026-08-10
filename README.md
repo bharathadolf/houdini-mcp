@@ -1,6 +1,6 @@
 # Houdini MCP Server
 
-A Model Context Protocol (MCP) server for **SideFX Houdini**, enabling AI assistants like Claude Desktop and Claude Code to interactively control, construct, inspect, and visually verify 3D procedural scenes inside Houdini.
+A Model Context Protocol (MCP) server for **SideFX Houdini**, enabling AI assistants like Claude Desktop, Claude Code, Antigravity IDE, and Custom Connectors to interactively control, construct, inspect, and visually verify 3D procedural scenes inside Houdini.
 
 ---
 
@@ -9,16 +9,16 @@ A Model Context Protocol (MCP) server for **SideFX Houdini**, enabling AI assist
 Houdini MCP uses a decoupled **two-process design**:
 
 ```
-Claude (Desktop / Code)  <--- MCP (stdio/JSON-RPC) --->  Houdini MCP Server (Python Process)
-                                                                 |
-                                                     Binary Framed TCP Socket (127.0.0.1:9876)
-                                                                 |
-                                                     Houdini Listener (embedded in Houdini UI)
-                                                     (Main Thread Dispatcher -> hou API)
+Claude / Antigravity IDE  <--- MCP (stdio / SSE / HTTPS) --->  Houdini MCP Server (Python Process)
+                                                                       |
+                                                           Binary Framed TCP Socket (127.0.0.1:9876)
+                                                                       |
+                                                           Houdini Listener (embedded in Houdini UI)
+                                                           (Main Thread Dispatcher -> hou API)
 ```
 
 1. **Houdini Listener (`houdini_mcp.listener`)**: Embedded TCP socket server running inside Houdini's Python environment. Uses `hdefereval` to safely execute `hou` API commands synchronously on Houdini's main GUI thread.
-2. **MCP Server (`houdini_mcp.server`)**: Standalone FastMCP process launched by Claude over standard I/O (stdio). Exposes high-level 3D manipulation tools and communicates with the Houdini listener via binary length-prefixed TCP socket framing.
+2. **MCP Server (`houdini_mcp.server`)**: Standalone FastMCP process launched over standard I/O (stdio) or Server-Sent Events (SSE / HTTP / HTTPS). Exposes high-level 3D manipulation tools and communicates with the Houdini listener via binary length-prefixed TCP socket framing.
 
 ---
 
@@ -51,24 +51,29 @@ Clone/navigate to `houdini-MCP` and install package dependencies:
 ```bash
 cd d:\Studio\houdini-MCP
 pip install -e .[dev]
-# Or using requirements.txt:
-# pip install -r requirements.txt
 ```
 
-### 3. Install Houdini Listener Shelf Tool
-1. Open Houdini.
-2. Open the **Python Shell** (`Windows` -> `Python Shell`).
-3. Run the installer script:
+### 3. Install Houdini Listener & Shelf Tool
 
-```python
-exec(open(r"d:\Studio\houdini-MCP\scripts\install_shelf_tool.py").read())
-```
+#### Option A: Automatic Package & Shelf Installation (Recommended)
+1. Run the shelf tool installer script using `hython` or Python:
+   ```bash
+   python scripts/install_shelf_tool.py
+   ```
+2. Open Houdini. A **Houdini MCP** shelf tool button will be added to your active shelf set automatically. Click it anytime to toggle the listener server on/off (listening on `127.0.0.1:9876`).
 
-A **Houdini MCP** shelf tool button will be added to your active shelf. Click it anytime to toggle the listener server on/off (defaults to `127.0.0.1:9876`).
+#### Option B: Manual Installation inside Houdini
+1. Open Houdini -> Open **Python Shell** (`Windows` -> `Python Shell`).
+2. Execute the script:
+   ```python
+   exec(open(r"d:\Studio\houdini-MCP\scripts\install_shelf_tool.py").read())
+   ```
 
-### 4. Register Server with Claude
+---
 
-#### Claude Desktop
+## 🔌 Registering Server with AI Clients
+
+### 1. Claude Desktop (stdio mode)
 Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 
 ```json
@@ -82,26 +87,49 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 }
 ```
 
-#### Claude Code
-Run in terminal:
+### 2. Custom Connectors / Remote Web Clients (SSE / HTTPS mode)
+Launch the server in SSE mode:
 
 ```bash
-claude mcp add houdini -- python -m houdini_mcp.server
+# HTTP SSE mode (Default port 8000)
+python -m houdini_mcp.server --transport sse --port 8000
+
+# HTTPS SSE mode (with SSL certificates)
+python -m houdini_mcp.server --transport sse --port 8443 --ssl
 ```
+
+#### Exposing to Web UI / Custom Connectors via Cloudflare Tunnel
+For web applications requiring a trusted public HTTPS URL (e.g. `https://....trycloudflare.com/mcp`):
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+Use the output URL in your connector settings:
+- **Remote MCP server URL:** `https://<YOUR-TUNNEL-NAME>.trycloudflare.com/mcp`
+
+### 3. Antigravity / Agentic IDEs (Workspace Skill)
+This repository includes a native workspace skill definition at `.agents/skills/houdini-mcp/SKILL.md`. Antigravity IDE will automatically discover and register the Houdini MCP tools when opening this project folder.
 
 ---
 
-## 🧪 Development & Testing
+## 🧪 Testing & Verification
 
-### Running Offline Unit Tests
-Run unit tests for binary framing and TCP client connection resilience:
+### Test Connection Utility
+To test that your running Houdini session is listening and accepting commands:
 
 ```bash
-python -m pytest tests/test_framing.py tests/test_client.py tests/test_mock_listener.py
+python scripts/test_connection.py
+```
+
+### Running Unit Test Suite
+Run unit tests for binary length-prefixed framing and mock TCP server resilience:
+
+```bash
+pytest
 ```
 
 ### Testing with MCP Inspector
-Inspect and test tool outputs manually without launching Claude:
+Inspect tools manually via standard I/O:
 
 ```bash
 npx @modelcontextprotocol/inspector python -m houdini_mcp.server
@@ -111,8 +139,8 @@ npx @modelcontextprotocol/inspector python -m houdini_mcp.server
 
 ## 🔒 Security Notice
 
-- The TCP socket listener binds exclusively to `127.0.0.1` (localhost). Do not bind to `0.0.0.0` or expose the socket port over unstrusted networks.
-- `execute_houdini_code` executes arbitrary Python code within your local Houdini session by design. Only connect trusted MCP clients running locally.
+- The TCP socket listener binds exclusively to `127.0.0.1` (localhost). Do not bind to `0.0.0.0` or expose the socket port over untrusted local networks.
+- `execute_houdini_code` executes arbitrary Python code within your local Houdini session by design. Only connect trusted MCP clients running locally or through secure tunnels.
 
 ---
 

@@ -134,7 +134,44 @@ def handle_set_parm(params: Dict[str, Any]) -> Dict[str, Any]:
     parm_tuple = node.parmTuple(parm_name)
 
     if parm is not None:
-        parm.set(value)
+        try:
+            parm.set(value)
+        except Exception as err:
+            # Handle menu parameter resolution if setting direct string/label failed
+            if hasattr(parm, "parmTemplate") and parm.parmTemplate().type() == hou.parmTemplateType.Menu:
+                items = parm.menuItems()
+                labels = parm.menuLabels()
+                matched = False
+                if isinstance(value, str):
+                    val_lower = value.strip().lower()
+                    # Match label
+                    for idx, label in enumerate(labels):
+                        if label.lower() == val_lower:
+                            parm.set(items[idx])
+                            matched = True
+                            break
+                    # Match item token case-insensitively
+                    if not matched:
+                        for item in items:
+                            if item.lower() == val_lower:
+                                parm.set(item)
+                                matched = True
+                                break
+                    # Match integer string index
+                    if not matched and value.isdigit():
+                        idx = int(value)
+                        if 0 <= idx < len(items):
+                            parm.set(items[idx])
+                            matched = True
+                elif isinstance(value, int) and 0 <= value < len(items):
+                    parm.set(items[value])
+                    matched = True
+
+                if not matched:
+                    options_str = ", ".join([f"'{it}' ({lbl})" for it, lbl in zip(items, labels)])
+                    raise ValueError(f"Invalid menu item '{value}' for parameter '{parm_name}'. Valid options: {options_str}")
+            else:
+                raise err
         new_val = parm.eval()
     elif parm_tuple is not None:
         if isinstance(value, (list, tuple)):
@@ -241,10 +278,11 @@ def handle_cook_node(params: Dict[str, Any]) -> Dict[str, Any]:
         try:
             geo = node.geometry()
             if geo:
+                vert_cnt = geo.vertexCount() if hasattr(geo, "vertexCount") else (geo.vertCount() if hasattr(geo, "vertCount") else 0)
                 stats["geometry"] = {
                     "points": geo.pointCount(),
                     "primitives": geo.primCount(),
-                    "vertices": geo.vertCount(),
+                    "vertices": vert_cnt,
                     "point_attribs": [a.name() for a in geo.pointAttribs()],
                     "prim_attribs": [a.name() for a in geo.primAttribs()],
                 }
@@ -271,7 +309,8 @@ def handle_capture_viewport(params: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError("No active SceneViewer panel found in current Houdini desktop layout.")
 
     # Render viewport frame using SceneViewer flipbook / snapshot
-    flipbook_settings = viewer.flipbookSettings().clone()
+    raw_settings = viewer.flipbookSettings()
+    flipbook_settings = raw_settings.copy() if hasattr(raw_settings, "copy") else raw_settings
     flipbook_settings.output(output_png)
     flipbook_settings.frameRange((hou.frame(), hou.frame()))
     flipbook_settings.resolution((width, height))

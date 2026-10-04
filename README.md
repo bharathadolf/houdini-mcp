@@ -1,99 +1,251 @@
 # Houdini MCP Server
 
-A Model Context Protocol (MCP) server for **SideFX Houdini**, enabling AI assistants like Claude Desktop, Claude Code, Antigravity IDE, and Custom Connectors to interactively control, construct, inspect, and visually verify 3D procedural scenes inside Houdini.
+An MCP server for **SideFX Houdini** that lets AI assistants such as Claude Desktop, Claude Code, Antigravity, and custom MCP clients interact with Houdini scenes.
+
+It can create and modify nodes, set parameters, build procedural networks, inspect geometry and USD, render frames, save files, and capture viewport images for AI inspection.
 
 ---
 
-## 🏗 Architecture Overview
+## 1. Architecture
 
-Houdini MCP uses a decoupled **two-process design**:
+Houdini MCP uses two processes:
 
-
+```text
+AI Client
+(Claude / Antigravity / Custom Client)
+          |
+          | MCP
+          | stdio / SSE / HTTP
+          v
+Houdini MCP Server
+(Python process)
+          |
+          | TCP
+          | 127.0.0.1:9876
+          v
+Houdini Listener
+(inside Houdini)
+          |
+          | hdefereval
+          v
+Houdini Main Thread
+          |
+          v
+        hou API
 ```
-Claude / Antigravity IDE  <--- MCP (stdio / SSE / HTTPS) --->  Houdini MCP Server (Python Process)
-                                                                       |
-                                                           Binary Framed TCP Socket (127.0.0.1:9876)
-                                                                       |
-                                                           Houdini Listener (embedded in Houdini UI)
-                                                           (Main Thread Dispatcher -> hou API)
+
+### Houdini Listener
+
+Runs inside Houdini and:
+
+- Listens on `127.0.0.1:9876`
+- Receives commands from the MCP server
+- Uses `hdefereval` to safely execute Houdini API operations
+- Runs Houdini operations on the main GUI thread
+
+### MCP Server
+
+Runs as a separate Python process and:
+
+- Provides MCP tools to AI clients
+- Communicates with the Houdini Listener
+- Supports stdio and HTTP/SSE transports
+- Converts high-level AI requests into Houdini operations
+
+---
+
+## 2. Available Tools
+
+### Scene & Nodes
+
+| Tool | Purpose |
+|---|---|
+| `get_scene_info` | Get HIP path, frame, FPS, and major Houdini networks |
+| `get_node_info` | Inspect a node, parameters, inputs, and outputs |
+| `create_node` | Create a Houdini node |
+| `set_parm` | Set node parameters |
+| `get_parm` | Read parameter values |
+| `connect_nodes` | Connect node inputs and outputs |
+| `delete_node` | Delete a node |
+| `cook_node` | Cook a node and return geometry statistics |
+
+### VEX & Attributes
+
+| Tool | Purpose |
+|---|---|
+| `create_wrangle` | Create an Attribute Wrangle with VEX code |
+| `inspect_attributes` | Inspect point, primitive, vertex, and detail attributes |
+| `promote_attribute` | Promote attributes between geometry domains |
+
+### Networks
+
+| Tool | Purpose |
+|---|---|
+| `layout_network` | Automatically arrange nodes |
+| `create_node_preset_network` | Create predefined procedural networks |
+| `create_group` | Create geometry groups |
+
+Available presets:
+
+- `scatter_instance`
+- `rbd_destruction`
+- `terrain_erosion`
+
+### Materials & USD
+
+| Tool | Purpose |
+|---|---|
+| `create_material` | Create MaterialX/Karma materials |
+| `assign_material` | Assign materials to geometry or USD primitives |
+| `get_usd_stage_info` | Inspect Solaris/USD stage and layer information |
+
+### Cameras & Lights
+
+| Tool | Purpose |
+|---|---|
+| `create_camera` | Create and configure a camera |
+| `create_light` | Create Dome, Area, Distant, or Spot lights |
+| `set_active_camera` | Set the active viewport camera |
+| `capture_viewport` | Capture the Houdini viewport as a PNG image |
+
+### Rendering & Caching
+
+| Tool | Purpose |
+|---|---|
+| `render_frame` | Render a frame using a ROP/Karma node |
+| `bake_geometry_cache` | Create a File Cache node and save geometry |
+
+### Files & Assets
+
+| Tool | Purpose |
+|---|---|
+| `save_hip_file` | Save the current Houdini scene |
+| `load_hip_file` | Open a Houdini scene |
+| `export_asset` | Export OBJ, FBX, Alembic, or USD |
+| `instantiate_hda` | Load and instantiate an HDA/OTL |
+
+### Advanced
+
+| Tool | Purpose |
+|---|---|
+| `execute_houdini_code` | Execute arbitrary Python code with `hou` available |
+
+> `execute_houdini_code` should only be used with trusted MCP clients because it provides direct access to the Houdini Python API.
+
+---
+
+## 3. Requirements
+
+### Houdini
+
+- Houdini 19.5+
+- Houdini Core, FX, or Indie
+- Python 3
+
+### System Python
+
+- Python 3.10+
+- `pip`
+
+---
+
+## 4. Installation
+
+Assume the repository is located at:
+
+```text
+D:\Studio\houdini-MCP
 ```
 
-1. **Houdini Listener (`houdini_mcp.listener`)**: Embedded TCP socket server running inside Houdini's Python environment. Uses `hdefereval` to safely execute `hou` API commands synchronously on Houdini's main GUI thread.
-2. **MCP Server (`houdini_mcp.server`)**: Standalone FastMCP process launched over standard I/O (stdio) or Server-Sent Events (SSE / HTTP / HTTPS). Exposes high-level 3D manipulation tools and communicates with the Houdini listener via binary length-prefixed TCP socket framing.
+### Step 1 — Install the Python package
 
----
-
-## 🛠 Available MCP Tools
-
-| Tool | Category | Description |
-|---|---|---|
-| `get_scene_info` | Core | Returns hip file path, current frame, FPS, and root network trees (`/obj`, `/stage`, `/out`, `/mat`, `/img`). |
-| `get_node_info` | Core | Returns node type, parameter dictionary, input/output connection paths for a specific node. |
-| `create_node` | Core | Creates a new node under a parent network (e.g. `parent_path='/obj'`, `node_type='geo'`). |
-| `set_parm` | Core | Sets scalar, string, menu, or vector list parameters on a node with smart menu label matching. |
-| `get_parm` | Core | Evaluates parameter values on a node. |
-| `connect_nodes` | Core | Connects output ports to input ports between nodes. |
-| `delete_node` | Core | Destroys a node at path. |
-| `cook_node` | Core | Force cooks a node and returns geometry statistics (point, primitive, vertex counts, attribute lists). |
-| `capture_viewport` | Core | Captures a viewport screenshot from the SceneViewer tab and returns an MCP Image object (PNG) for visual AI inspection. |
-| `execute_houdini_code` | Core | Escape hatch to execute arbitrary Python code directly inside Houdini with `hou` available. |
-| `create_wrangle` | VEX & Attribs | Spawns an Attribute Wrangle SOP with VEX code snippet pre-populated. |
-| `inspect_attributes` | VEX & Attribs | Queries attribute list and domain details (points, prims, vertices, detail). |
-| `promote_attribute` | VEX & Attribs | Promotes attributes between domains (`point` $\rightarrow$ `prim` $\rightarrow$ `detail`). |
-| `layout_network` | Networks | Auto-arranges network nodes cleanly in the Network Editor. |
-| `create_node_preset_network` | Networks | Spawns procedural sub-network presets (`scatter_instance`, `rbd_destruction`, `terrain_erosion`). |
-| `create_group` | Networks | Spawns `groupcreate` SOP to group points, primitives, or edges. |
-| `create_material` | Shading & USD | Spawns Karma MaterialX or shader builder under `/mat` or `/stage/materiallibrary`. |
-| `assign_material` | Shading & USD | Binds a material path to geometry nodes or USD primitives. |
-| `get_usd_stage_info` | Shading & USD | Inspects USD prim tree and layer stack in Solaris/LOPs. |
-| `create_camera` | Cam & Lights | Spawns camera node with focal length, aperture, resolution, and transform controls. |
-| `create_light` | Cam & Lights | Spawns Dome Light, Area Light, Distant Light, or Spot Light with intensity and HDRI. |
-| `set_active_camera` | Cam & Lights | Switches the active viewport camera to a specified camera node. |
-| `render_frame` | Rendering & Cache | Triggers Karma / ROP render node to render a frame to disk. |
-| `bake_geometry_cache` | Rendering & Cache | Creates a File Cache SOP node to bake simulation/geometry caches to disk. |
-| `save_hip_file` | File & Assets | Saves current Houdini `.hip` scene file. |
-| `load_hip_file` | File & Assets | Opens an existing Houdini `.hip` scene file. |
-| `export_asset` | File & Assets | Exports geometry output to `.obj`, `.fbx`, `.abc`, or `.usd`. |
-| `instantiate_hda` | File & Assets | Instantiates a Houdini Digital Asset (`.hda` / `.otl`). |
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Prerequisites
-- **Houdini**: SideFX Houdini 19.5+ (Indie, Core, or FX) with Python 3 enabled.
-- **Python**: Python 3.10+ on system PATH.
-
-### 2. Install Python MCP Package
-Clone/navigate to `houdini-MCP` and install package dependencies:
+Open a terminal:
 
 ```bash
-cd d:\Studio\houdini-MCP
-pip install -e .[dev]
+cd D:\Studio\houdini-MCP
+pip install -e ".[dev]"
 ```
-
-### 3. Install Houdini Listener & Shelf Tool
-
-#### Option A: Automatic Package & Shelf Installation (Recommended)
-1. Run the shelf tool installer script using `hython` or Python:
-   ```bash
-   python scripts/install_shelf_tool.py
-   ```
-2. Open Houdini. A **Houdini MCP** shelf tool button will be added to your active shelf set automatically. Click it anytime to toggle the listener server on/off (listening on `127.0.0.1:9876`).
-
-#### Option B: Manual Installation inside Houdini
-1. Open Houdini -> Open **Python Shell** (`Windows` -> `Python Shell`).
-2. Execute the script:
-   ```python
-   exec(open(r"d:\Studio\houdini-MCP\scripts\install_shelf_tool.py").read())
-   ```
 
 ---
 
-## 🔌 Registering Server with AI Clients
+## 5. Install the Houdini Listener
 
-### 1. Claude Desktop (stdio mode)
-Edit `%APPDATA%\Claude\claude_desktop_config.json`:
+### Option A — Automatic Installation
+
+Recommended.
+
+Run:
+
+```bash
+python scripts/install_shelf_tool.py
+```
+
+Then:
+
+1. Open Houdini.
+2. Find the **Houdini MCP** shelf tool.
+3. Click it to start or stop the listener.
+4. The listener uses:
+
+```text
+127.0.0.1:9876
+```
+
+### Option B — Install from Houdini
+
+Open:
+
+**Houdini → Windows → Python Shell**
+
+Run:
+
+```python
+exec(open(r"D:\Studio\houdini-MCP\scripts\install_shelf_tool.py").read())
+```
+
+Restart Houdini if required.
+
+---
+
+## 6. Start the MCP Server
+
+### Stdio
+
+Use this for local MCP clients such as Claude Desktop:
+
+```bash
+python -m houdini_mcp.server
+```
+
+### SSE / HTTP
+
+Run:
+
+```bash
+python -m houdini_mcp.server --transport sse --port 8000
+```
+
+The server will be available on port `8000`.
+
+### HTTPS
+
+Run:
+
+```bash
+python -m houdini_mcp.server --transport sse --port 8443 --ssl
+```
+
+---
+
+## 7. Claude Desktop
+
+Open:
+
+```text
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+Add:
 
 ```json
 {
@@ -106,62 +258,270 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 }
 ```
 
-### 2. Custom Connectors / Remote Web Clients (SSE / HTTPS mode)
-Launch the server in SSE mode:
+Restart Claude Desktop.
 
-```bash
-# HTTP SSE mode (Default port 8000)
-python -m houdini_mcp.server --transport sse --port 8000
+---
 
-# HTTPS SSE mode (with SSL certificates)
-python -m houdini_mcp.server --transport sse --port 8443 --ssl
+## 8. Antigravity
+
+The repository includes:
+
+```text
+.agents/
+└── skills/
+    └── houdini-mcp/
+        └── SKILL.md
 ```
 
-#### Exposing to Web UI / Custom Connectors via Cloudflare Tunnel
-For web applications requiring a trusted public HTTPS URL (e.g. `https://....trycloudflare.com/mcp`):
+Open the repository as the workspace.
+
+Antigravity can discover the workspace skill and use the Houdini MCP tools.
+
+---
+
+## 9. Remote Web Clients
+
+For a web application or custom MCP connector, run:
+
+```bash
+python -m houdini_mcp.server --transport sse --port 8000
+```
+
+If the client requires a public HTTPS endpoint, a tunnel can be used:
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8000
 ```
-Use the output URL in your connector settings:
-- **Remote MCP server URL:** `https://<YOUR-TUNNEL-NAME>.trycloudflare.com/mcp`
 
-### 3. Antigravity / Agentic IDEs (Workspace Skill)
-This repository includes a native workspace skill definition at `.agents/skills/houdini-mcp/SKILL.md`. Antigravity IDE will automatically discover and register the Houdini MCP tools when opening this project folder.
+Use the HTTPS MCP endpoint generated by the tunnel in the remote MCP client.
 
 ---
 
-## 🧪 Testing & Verification
+## 10. Test the Connection
 
-### Test Connection Utility
-To test that your running Houdini session is listening and accepting commands:
+Start Houdini and enable the Houdini MCP listener.
+
+Then run:
 
 ```bash
 python scripts/test_connection.py
 ```
 
-### Running Unit Test Suite
-Run unit tests for binary length-prefixed framing and mock TCP server resilience:
+A successful connection confirms that the MCP server can communicate with Houdini.
+
+---
+
+## 11. Run Tests
+
+Run the test suite:
 
 ```bash
 pytest
 ```
 
-### Testing with MCP Inspector
-Inspect tools manually via standard I/O:
+The tests cover areas such as:
+
+- TCP communication
+- Binary length-prefixed message framing
+- Server resilience
+- Mock Houdini communication
+
+---
+
+## 12. MCP Inspector
+
+To inspect the MCP server manually:
 
 ```bash
 npx @modelcontextprotocol/inspector python -m houdini_mcp.server
 ```
 
----
-
-## 🔒 Security Notice
-
-- The TCP socket listener binds exclusively to `127.0.0.1` (localhost). Do not bind to `0.0.0.0` or expose the socket port over untrusted local networks.
-- `execute_houdini_code` executes arbitrary Python code within your local Houdini session by design. Only connect trusted MCP clients running locally or through secure tunnels.
+This allows you to inspect and test the exposed MCP tools.
 
 ---
 
-## 📄 License
+## 13. Example Workflow
+
+A typical AI-to-Houdini workflow looks like this:
+
+```text
+User
+  |
+  | "Create a procedural rock generator"
+  v
+AI Assistant
+  |
+  | create_node
+  | set_parm
+  | connect_nodes
+  | create_wrangle
+  | cook_node
+  v
+MCP Server
+  |
+  | TCP
+  v
+Houdini Listener
+  |
+  | hou API
+  v
+Houdini
+  |
+  v
+Procedural Network
+```
+
+The AI can then:
+
+1. Inspect the generated network.
+2. Modify parameters.
+3. Cook the network.
+4. Inspect geometry attributes.
+5. Capture the viewport.
+6. Make further changes based on the result.
+7. Save or export the asset.
+
+---
+
+## 14. Security
+
+The Houdini listener should remain bound to:
+
+```text
+127.0.0.1
+```
+
+Do **not** expose port `9876` directly to the public internet or an untrusted network.
+
+Important:
+
+- `execute_houdini_code` can execute arbitrary Python inside Houdini.
+- Only connect trusted MCP clients.
+- If remote access is required, use a properly secured HTTPS/tunnel setup.
+- Keep the Houdini TCP listener local whenever possible.
+
+---
+
+## 15. Project Structure
+
+A recommended structure is:
+
+```text
+houdini-MCP/
+│
+├── houdini_mcp/
+│   ├── __init__.py
+│   ├── server.py
+│   ├── listener.py
+│   ├── client.py
+│   └── tools/
+│       ├── scene.py
+│       ├── nodes.py
+│       ├── vex.py
+│       ├── usd.py
+│       ├── materials.py
+│       ├── rendering.py
+│       └── assets.py
+│
+├── scripts/
+│   ├── install_shelf_tool.py
+│   └── test_connection.py
+│
+├── .agents/
+│   └── skills/
+│       └── houdini-mcp/
+│           └── SKILL.md
+│
+├── tests/
+│
+├── pyproject.toml
+└── README.md
+```
+
+---
+
+## 16. Supported Operations
+
+The server is designed to support an AI-driven Houdini workflow covering:
+
+```text
+Scene Creation
+      ↓
+Node Construction
+      ↓
+Parameter Editing
+      ↓
+VEX / Attributes
+      ↓
+Procedural Networks
+      ↓
+Materials
+      ↓
+USD / Solaris
+      ↓
+Cameras & Lighting
+      ↓
+Simulation / Caching
+      ↓
+Rendering
+      ↓
+Viewport Inspection
+      ↓
+Asset Export
+```
+
+This allows an AI assistant to build and inspect Houdini scenes rather than only generating Python snippets.
+
+---
+
+## 17. Quick Reference
+
+### Start Listener
+
+Inside Houdini:
+
+```text
+Houdini MCP Shelf → Start
+```
+
+### Start MCP Server
+
+```bash
+python -m houdini_mcp.server
+```
+
+### Test
+
+```bash
+python scripts/test_connection.py
+```
+
+### Run Tests
+
+```bash
+pytest
+```
+
+### MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector python -m houdini_mcp.server
+```
+
+### Default TCP Port
+
+```text
+127.0.0.1:9876
+```
+
+### Default SSE Port
+
+```text
+8000
+```
+
+---
+
+## License
+
 MIT License
